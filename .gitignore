@@ -1,0 +1,4 @@
+node_modules
+*.db
+control_gastos.db
+.env
