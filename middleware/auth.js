@@ -1,9 +1,11 @@
 const jwt = require('jsonwebtoken');
-const SECRET = 'control_gastos_secret_123';
+const SECRET = process.env.JWT_SECRET || 'control_gastos_secret_123';
 
 module.exports = function verificarToken(req, res, next) {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const token = authHeader && authHeader.startsWith('Bearer ')
+    ? authHeader.split(' ')[1]
+    : authHeader;
 
   if (!token) return res.status(401).json({ error: 'Token requerido' });
 

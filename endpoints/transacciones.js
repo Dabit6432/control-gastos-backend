@@ -1,73 +1,81 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../database/db');
+const pool = require('../database/db');
 
-router.get('/resumen', (req, res) => {
-  const ingresos = db.prepare(`
-    SELECT COALESCE(SUM(monto), 0) as total
-    FROM transacciones
-    WHERE usuario_id = ? AND tipo = 'ingreso'
-  `).get(req.usuario.id);
-  const gastos = db.prepare(`
-    SELECT COALESCE(SUM(monto), 0) as total
-    FROM transacciones
-    WHERE usuario_id = ? AND tipo = 'gasto'
-  `).get(req.usuario.id);
+// GET /transacciones/resumen
+router.get('/resumen', async (req, res) => {
+  const ingresos = await pool.query(
+    "SELECT COALESCE(SUM(monto), 0) as total FROM transacciones WHERE usuario_id = $1 AND tipo = 'ingreso'",
+    [req.usuario.id]
+  );
+  const gastos = await pool.query(
+    "SELECT COALESCE(SUM(monto), 0) as total FROM transacciones WHERE usuario_id = $1 AND tipo = 'gasto'",
+    [req.usuario.id]
+  );
   res.json({
-    ingresos: ingresos.total,
-    gastos: gastos.total,
-    balance: ingresos.total - gastos.total
+    ingresos: Number(ingresos.rows[0].total),
+    gastos: Number(gastos.rows[0].total),
+    balance: Number(ingresos.rows[0].total) - Number(gastos.rows[0].total)
   });
 });
 
-router.get('/', (req, res) => {
-  const transacciones = db.prepare(`
+// GET /transacciones
+router.get('/', async (req, res) => {
+  const resultado = await pool.query(`
     SELECT t.*, c.nombre as categoria
     FROM transacciones t
     JOIN categorias c ON t.categoria_id = c.id
-    WHERE t.usuario_id = ?
+    WHERE t.usuario_id = $1
     ORDER BY t.fecha DESC
-  `).all(req.usuario.id);
-  res.json(transacciones);
+  `, [req.usuario.id]);
+  res.json(resultado.rows);
 });
 
-router.post('/', (req, res) => {
+// POST /transacciones
+router.post('/', async (req, res) => {
   const { descripcion, monto, tipo, categoria_id, fecha } = req.body;
   if (!descripcion || !monto || !tipo || !categoria_id || !fecha)
     return res.status(400).json({ error: 'Todos los campos son requeridos' });
-  const resultado = db.prepare(`
+
+  const resultado = await pool.query(`
     INSERT INTO transacciones (descripcion, monto, tipo, categoria_id, fecha, usuario_id)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(descripcion, monto, tipo, categoria_id, fecha, req.usuario.id);
-  res.json({ id: resultado.lastInsertRowid, descripcion, monto, tipo, categoria_id, fecha });
+    VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
+  `, [descripcion, monto, tipo, categoria_id, fecha, req.usuario.id]);
+
+  res.json(resultado.rows[0]);
 });
 
-router.get('/:id', (req, res) => {
-  const transaccion = db.prepare(`
+// GET /transacciones/:id
+router.get('/:id', async (req, res) => {
+  const resultado = await pool.query(`
     SELECT t.*, c.nombre as categoria
     FROM transacciones t
     JOIN categorias c ON t.categoria_id = c.id
-    WHERE t.id = ? AND t.usuario_id = ?
-  `).get(req.params.id, req.usuario.id);
-  if (!transaccion) return res.status(404).json({ error: 'Transacción no encontrada' });
-  res.json(transaccion);
+    WHERE t.id = $1 AND t.usuario_id = $2
+  `, [req.params.id, req.usuario.id]);
+
+  if (resultado.rows.length === 0) return res.status(404).json({ error: 'Transacción no encontrada' });
+  res.json(resultado.rows[0]);
 });
 
-router.put('/:id', (req, res) => {
+// PUT /transacciones/:id
+router.put('/:id', async (req, res) => {
   const { descripcion, monto, tipo, categoria_id, fecha } = req.body;
   if (!descripcion || !monto || !tipo || !categoria_id || !fecha)
     return res.status(400).json({ error: 'Todos los campos son requeridos' });
-  db.prepare(`
+
+  await pool.query(`
     UPDATE transacciones
-    SET descripcion = ?, monto = ?, tipo = ?, categoria_id = ?, fecha = ?
-    WHERE id = ? AND usuario_id = ?
-  `).run(descripcion, monto, tipo, categoria_id, fecha, req.params.id, req.usuario.id);
+    SET descripcion = $1, monto = $2, tipo = $3, categoria_id = $4, fecha = $5
+    WHERE id = $6 AND usuario_id = $7
+  `, [descripcion, monto, tipo, categoria_id, fecha, req.params.id, req.usuario.id]);
+
   res.json({ id: req.params.id, descripcion, monto, tipo, categoria_id, fecha });
 });
 
-router.delete('/:id', (req, res) => {
-  db.prepare('DELETE FROM transacciones WHERE id = ? AND usuario_id = ?')
-    .run(req.params.id, req.usuario.id);
+// DELETE /transacciones/:id
+router.delete('/:id', async (req, res) => {
+  await pool.query('DELETE FROM transacciones WHERE id = $1 AND usuario_id = $2', [req.params.id, req.usuario.id]);
   res.json({ mensaje: 'Transacción eliminada' });
 });
 

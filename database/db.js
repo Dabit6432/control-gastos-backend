@@ -1,74 +1,86 @@
-const Database = require('better-sqlite3');
-const db = new Database('control_gastos.db');
+const { Pool } = require('pg');
+require('dotenv').config();
 
-// Tablas
-db.exec(`
-  CREATE TABLE IF NOT EXISTS usuarios (
-    id       INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre   TEXT    NOT NULL,
-    email    TEXT    NOT NULL UNIQUE,
-    password TEXT    NOT NULL
-  );
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false } // necesario para Render
+});
 
-  CREATE TABLE IF NOT EXISTS categorias (
-    id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre  TEXT NOT NULL,
-    tipo    TEXT NOT NULL CHECK(tipo IN ('ingreso', 'gasto'))
-  );
+// Función que crea las tablas y datos de prueba
+async function inicializarDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS usuarios (
+      id       SERIAL PRIMARY KEY,
+      nombre   TEXT NOT NULL,
+      email    TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL
+    );
+  `);
 
-  CREATE TABLE IF NOT EXISTS transacciones (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    descripcion  TEXT    NOT NULL,
-    monto        REAL    NOT NULL,
-    tipo         TEXT    NOT NULL CHECK(tipo IN ('ingreso', 'gasto')),
-    categoria_id INTEGER NOT NULL,
-    fecha        TEXT    NOT NULL,
-    usuario_id   INTEGER NOT NULL,
-    FOREIGN KEY (categoria_id) REFERENCES categorias(id),
-    FOREIGN KEY (usuario_id)   REFERENCES usuarios(id)
-  );
-`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS categorias (
+      id     SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      tipo   TEXT NOT NULL CHECK(tipo IN ('ingreso', 'gasto'))
+    );
+  `);
 
-// Datos de prueba — categorías
-const totalCategorias = db.prepare('SELECT COUNT(*) as total FROM categorias').get();
-if (totalCategorias.total === 0) {
-  const insertar = db.prepare('INSERT INTO categorias (nombre, tipo) VALUES (?, ?)');
-  insertar.run('Salario',         'ingreso');
-  insertar.run('Freelance',       'ingreso');
-  insertar.run('Inversiones',     'ingreso');
-  insertar.run('Comida',          'gasto');
-  insertar.run('Renta',           'gasto');
-  insertar.run('Transporte',      'gasto');
-  insertar.run('Entretenimiento', 'gasto');
-  insertar.run('Salud',           'gasto');
-  insertar.run('Ropa',            'gasto');
-  insertar.run('Servicios',       'gasto');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS transacciones (
+      id           SERIAL PRIMARY KEY,
+      descripcion  TEXT NOT NULL,
+      monto        REAL NOT NULL,
+      tipo         TEXT NOT NULL CHECK(tipo IN ('ingreso', 'gasto')),
+      categoria_id INTEGER NOT NULL REFERENCES categorias(id),
+      fecha        TEXT NOT NULL,
+      usuario_id   INTEGER NOT NULL REFERENCES usuarios(id)
+    );
+  `);
+
+  // Categorías de prueba
+  const cats = await pool.query('SELECT COUNT(*) FROM categorias');
+  if (parseInt(cats.rows[0].count) === 0) {
+    const lista = [
+      ['Salario', 'ingreso'], ['Freelance', 'ingreso'], ['Inversiones', 'ingreso'],
+      ['Comida', 'gasto'], ['Renta', 'gasto'], ['Transporte', 'gasto'],
+      ['Entretenimiento', 'gasto'], ['Salud', 'gasto'], ['Ropa', 'gasto'], ['Servicios', 'gasto']
+    ];
+    for (const [nombre, tipo] of lista) {
+      await pool.query('INSERT INTO categorias (nombre, tipo) VALUES ($1, $2)', [nombre, tipo]);
+    }
+  }
+
+  // Usuario de prueba
+  const bcrypt = require('bcryptjs');
+  const users = await pool.query('SELECT COUNT(*) FROM usuarios');
+  if (parseInt(users.rows[0].count) === 0) {
+    const hash = bcrypt.hashSync('123456', 10);
+    await pool.query(
+      'INSERT INTO usuarios (nombre, email, password) VALUES ($1, $2, $3)',
+      ['Usuario Prueba', 'prueba@email.com', hash]
+    );
+  }
+
+  // Transacciones de prueba
+  const trans = await pool.query('SELECT COUNT(*) FROM transacciones');
+  if (parseInt(trans.rows[0].count) === 0) {
+    const lista = [
+      ['Salario enero', 15000, 'ingreso', 1, '2025-01-05', 1],
+      ['Proyecto freelance', 5000, 'ingreso', 2, '2025-01-10', 1],
+      ['Renta enero', 4500, 'gasto', 5, '2025-01-01', 1],
+      ['Supermercado', 850, 'gasto', 4, '2025-01-07', 1],
+      ['Netflix + Spotify', 350, 'gasto', 7, '2025-01-08', 1],
+      ['Gasolina', 600, 'gasto', 6, '2025-01-09', 1],
+    ];
+    for (const t of lista) {
+      await pool.query(
+        'INSERT INTO transacciones (descripcion, monto, tipo, categoria_id, fecha, usuario_id) VALUES ($1, $2, $3, $4, $5, $6)',
+        t
+      );
+    }
+  }
 }
 
-// Datos de prueba — usuario
-const bcrypt = require('bcryptjs');
-const totalUsuarios = db.prepare('SELECT COUNT(*) as total FROM usuarios').get();
-if (totalUsuarios.total === 0) {
-  const hash = bcrypt.hashSync('123456', 10);
-  db.prepare('INSERT INTO usuarios (nombre, email, password) VALUES (?, ?, ?)').run('Usuario Prueba', 'prueba@email.com', hash);
-}
+inicializarDB().catch(err => console.error('Error inicializando DB:', err));
 
-// Datos de prueba — transacciones
-const totalTransacciones = db.prepare('SELECT COUNT(*) as total FROM transacciones').get();
-if (totalTransacciones.total === 0) {
-  const ins = db.prepare('INSERT INTO transacciones (descripcion, monto, tipo, categoria_id, fecha, usuario_id) VALUES (?, ?, ?, ?, ?, ?)');
-  ins.run('Salario enero',       15000, 'ingreso', 1, '2025-01-05', 1);
-  ins.run('Proyecto freelance',   5000, 'ingreso', 2, '2025-01-10', 1);
-  ins.run('Renta enero',          4500, 'gasto',   5, '2025-01-01', 1);
-  ins.run('Supermercado',          850, 'gasto',   4, '2025-01-07', 1);
-  ins.run('Netflix + Spotify',     350, 'gasto',   7, '2025-01-08', 1);
-  ins.run('Gasolina',              600, 'gasto',   6, '2025-01-09', 1);
-  ins.run('Salario febrero',     15000, 'ingreso', 1, '2025-02-05', 1);
-  ins.run('Consulta médica',       800, 'gasto',   8, '2025-02-12', 1);
-  ins.run('Ropa',                 1200, 'gasto',   9, '2025-02-15', 1);
-  ins.run('Freelance diseño',     3000, 'ingreso', 2, '2025-02-20', 1);
-  ins.run('Renta febrero',        4500, 'gasto',   5, '2025-02-01', 1);
-  ins.run('Restaurante',           450, 'gasto',   4, '2025-02-22', 1);
-}
-
-module.exports = db;
+module.exports = pool;

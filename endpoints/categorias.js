@@ -1,23 +1,20 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../database/db');
+const pool = require('../database/db');
 
-// GET /categorias — todas
-router.get('/', (req, res) => {
-  const categorias = db.prepare('SELECT * FROM categorias').all();
-  res.json(categorias);
+router.get('/', async (req, res) => {
+  const resultado = await pool.query('SELECT * FROM categorias');
+  res.json(resultado.rows);
 });
 
-// GET /categorias/ingresos — solo ingresos
-router.get('/ingresos', (req, res) => {
-  const categorias = db.prepare("SELECT * FROM categorias WHERE tipo = 'ingreso'").all();
-  res.json(categorias);
+router.get('/ingresos', async (req, res) => {
+  const resultado = await pool.query("SELECT * FROM categorias WHERE tipo = 'ingreso'");
+  res.json(resultado.rows);
 });
 
-// GET /categorias/gastos — solo gastos
-router.get('/gastos', (req, res) => {
-  const categorias = db.prepare("SELECT * FROM categorias WHERE tipo = 'gasto'").all();
-  res.json(categorias);
+router.get('/gastos', async (req, res) => {
+  const resultado = await pool.query("SELECT * FROM categorias WHERE tipo = 'gasto'");
+  res.json(resultado.rows);
 });
 
 module.exports = router;
